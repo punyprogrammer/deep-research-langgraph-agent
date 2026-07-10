@@ -1,0 +1,30 @@
+{
+  "name": "deep-research-backend",
+  "version": "0.1.0",
+  "description": "Deep research API powered by LangGraph and LangChain",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "langgraph:dev": "npx @langchain/langgraph-cli dev",
+    "langgraph:up": "npx @langchain/langgraph-cli up"
+  },
+  "dependencies": {
+    "@langchain/anthropic": "^1.5.1",
+    "@langchain/core": "^1.1.42",
+    "@langchain/langgraph": "^1.4.7",
+    "@langchain/openai": "^1.5.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@langchain/langgraph-cli": "^1.4.1",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.30",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3"
+  }
+}

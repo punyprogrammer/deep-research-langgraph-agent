@@ -1,0 +1,8 @@
+{
+  "node_version": "20",
+  "graphs": {
+    "research": "./src/graph/researchGraph.ts:graph"
+  },
+  "env": ".env",
+  "dependencies": ["."]
+}
