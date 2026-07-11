@@ -6,11 +6,8 @@ import {
   type BaseCheckpointSaver,
 } from "@langchain/langgraph";
 
-<<<<<<< HEAD
 import { log } from "../utils/logger.js";
 import { checkpointer } from "./checkpointer.js";
-=======
->>>>>>> bd343f7be41c70cc0042c9162c2f174294c1ab1a
 import { assessQuery } from "./nodes/assessQuery.js";
 import { finalizeResearch } from "./nodes/finalizeResearch.js";
 import { generateBrief } from "./nodes/generateBrief.js";
@@ -70,21 +67,6 @@ function buildWorkflow() {
     .addEdge("finalizeResearch", END);
 }
 
-<<<<<<< HEAD
-log.info("Research graph compiled", {
-  nodes: [
-    "assessQuery",
-    "requestClarification",
-    "humanClarification",
-    "incorporateClarification",
-    "generateBrief",
-  ],
-  terminalEdge: "generateBrief → END",
-  deepResearchWired: false,
-});
-
-export const graph = workflow.compile({ checkpointer });
-=======
 /**
  * Default superstep budget for the full scoping + research graph.
  * Research loops (llmCall ↔ toolNode) consume many steps; 25 is too low.
@@ -107,4 +89,3 @@ export function createResearchGraph(checkpointer: BaseCheckpointSaver) {
     .compile({ checkpointer })
     .withConfig({ recursionLimit: DEFAULT_RECURSION_LIMIT });
 }
->>>>>>> bd343f7be41c70cc0042c9162c2f174294c1ab1a
