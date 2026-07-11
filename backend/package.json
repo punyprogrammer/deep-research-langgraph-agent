@@ -17,6 +17,7 @@
     "@langchain/core": "^1.1.42",
     "@langchain/langgraph": "^1.4.7",
     "@langchain/openai": "^1.5.3",
+    "@tavily/core": "^0.7.6",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
     "langsmith": "^0.7.14",

@@ -31,6 +31,10 @@ function emptyState(messages: BaseMessage[]): ResearchState {
     humanResponse: "",
     enrichedQuery: "",
     status: "needs_clarification",
+    researcherMessages: [],
+    toolCallIterations: 0,
+    researchTopic: "",
+    compressedResearch: "",
   };
 }
 

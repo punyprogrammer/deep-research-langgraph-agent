@@ -11,18 +11,10 @@ function appendMessages(
 }
 
 /**
- * Mirrors AgentState from state_scope.py, extended with scoping workflow fields.
+ * Parent graph state: scoping fields + researcher subgraph channels.
  *
- * AgentState fields:
- * - messages: user conversation (MessagesState)
- * - researchBrief: research question generated from conversation
- * - supervisorMessages: supervisor coordination messages (reserved)
- * - rawNotes: unprocessed research notes (reserved)
- * - notes: processed notes (reserved)
- * - finalReport: final formatted report (reserved)
- *
- * ClarifyWithUser fields (set by requestClarification):
- * - needClarification, question, verification
+ * Researcher channels (shared with researcher subgraph for Studio/xray):
+ * - researcherMessages, researchTopic, toolCallIterations, compressedResearch, rawNotes
  */
 export const ResearchStateAnnotation = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -61,8 +53,25 @@ export const ResearchStateAnnotation = Annotation.Root({
 
   enrichedQuery: Annotation<string>,
 
-  
   status: Annotation<ResearchStatus>,
+
+  // Shared with researcher subgraph
+  researcherMessages: Annotation<BaseMessage[]>({
+    reducer: appendMessages,
+    default: () => [],
+  }),
+  toolCallIterations: Annotation<number>({
+    reducer: (_left, right) => right,
+    default: () => 0,
+  }),
+  researchTopic: Annotation<string>({
+    reducer: (_left, right) => right,
+    default: () => "",
+  }),
+  compressedResearch: Annotation<string>({
+    reducer: (_left, right) => right,
+    default: () => "",
+  }),
 });
 
 export type ResearchState = typeof ResearchStateAnnotation.State;
