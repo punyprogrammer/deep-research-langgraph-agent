@@ -6,6 +6,7 @@ import {
   type BaseCheckpointSaver,
 } from "@langchain/langgraph";
 
+import { log } from "../utils/logger.js";
 import { assessQuery } from "./nodes/assessQuery.js";
 import { finalizeResearch } from "./nodes/finalizeResearch.js";
 import { generateBrief } from "./nodes/generateBrief.js";
@@ -20,11 +21,21 @@ import { ResearchStateAnnotation } from "./state.js";
 export type { BaseMessage };
 
 function routeAfterAssessment(state: typeof ResearchStateAnnotation.State) {
-  return state.sufficient ? "generateBrief" : "requestClarification";
+  const next = state.sufficient ? "generateBrief" : "requestClarification";
+  log.node("assessQuery", "route", {
+    sufficient: state.sufficient,
+    next,
+  });
+  return next;
 }
 
 function routeAfterClarification(state: typeof ResearchStateAnnotation.State) {
-  return state.needClarification ? "humanClarification" : "generateBrief";
+  const next = state.needClarification ? "humanClarification" : "generateBrief";
+  log.node("requestClarification", "route", {
+    needClarification: state.needClarification,
+    next,
+  });
+  return next;
 }
 
 function buildWorkflow() {
@@ -54,6 +65,21 @@ function buildWorkflow() {
     .addEdge("researcher", "finalizeResearch")
     .addEdge("finalizeResearch", END);
 }
+
+log.info("Research graph workflow ready", {
+  nodes: [
+    "assessQuery",
+    "requestClarification",
+    "humanClarification",
+    "incorporateClarification",
+    "generateBrief",
+    "prepareResearch",
+    "researcher",
+    "finalizeResearch",
+  ],
+  terminalEdge: "finalizeResearch → END",
+  deepResearchWired: true,
+});
 
 /**
  * Default superstep budget for the full scoping + research graph.

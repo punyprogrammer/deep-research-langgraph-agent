@@ -16,16 +16,13 @@ import {
 export const MAX_RESEARCH_TOOL_ITERATIONS = 10;
 
 /**
- * Route after llm_call: continue tool loop or compress findings.
- * Mirrors should_continue from research_agent.py, plus an iteration cap.
+ * After llmCall: always execute pending tool_calls first.
+ * Never jump to compress while tool_call_ids are unanswered — that causes
+ * OpenAI 400 INVALID_TOOL_RESULTS.
  */
 function shouldContinue(
   state: ResearcherState,
 ): "toolNode" | "compressResearch" {
-  if (state.toolCallIterations >= MAX_RESEARCH_TOOL_ITERATIONS) {
-    return "compressResearch";
-  }
-
   const lastMessage = state.researcherMessages.at(-1);
 
   if (
@@ -37,6 +34,18 @@ function shouldContinue(
   }
 
   return "compressResearch";
+}
+
+/**
+ * After tools run: stop the loop at the iteration cap, otherwise call the LLM again.
+ */
+function afterTools(
+  state: ResearcherState,
+): "llmCall" | "compressResearch" {
+  if (state.toolCallIterations >= MAX_RESEARCH_TOOL_ITERATIONS) {
+    return "compressResearch";
+  }
+  return "llmCall";
 }
 
 /**
@@ -52,7 +61,10 @@ const researcherWorkflow = new StateGraph(ResearcherStateAnnotation)
     "toolNode",
     "compressResearch",
   ])
-  .addEdge("toolNode", "llmCall")
+  .addConditionalEdges("toolNode", afterTools, [
+    "llmCall",
+    "compressResearch",
+  ])
   .addEdge("compressResearch", END);
 
 export const researcherAgent = researcherWorkflow.compile();

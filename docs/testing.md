@@ -105,6 +105,36 @@ Each graph run produces multiple spans:
 
 When using `npm run langgraph:dev`, runs initiated from LangGraph Studio also appear in the same LangSmith project if tracing env vars are set.
 
+## Scoping evaluation (LangSmith)
+
+Evaluates `generateBrief` quality against success criteria and no-assumptions judges.
+
+### Prerequisites
+
+- `LANGSMITH_API_KEY` set in `backend/.env`
+- `OPENAI_API_KEY` set (used for brief generation when `LLM_PROVIDER=openai`, and always for LLM-as-judge)
+- Optional: `EVAL_MODEL` (default `gpt-4o`) for the judge models
+
+### Run
+
+```bash
+cd backend
+npm run eval:scoping
+```
+
+This will:
+
+1. Create or sync the `deep_research_scoping` dataset in LangSmith (5 conversation examples across investing, housing, CRM, travel, and infrastructure)
+2. Run `generateBrief` on each example
+3. Score with `success_criteria_score` and `no_assumptions_score`
+4. Upload an experiment prefixed `Deep Research Scoping`
+
+### View results
+
+1. Open [LangSmith](https://smith.langchain.com)
+2. Go to **Datasets & Experiments** → `deep_research_scoping`
+3. Open the latest experiment under the `Deep Research Scoping` prefix
+
 ## Manual checklist
 
 - [ ] `npm install` succeeds in `backend`
@@ -114,6 +144,7 @@ When using `npm run langgraph:dev`, runs initiated from LangGraph Studio also ap
 - [ ] Resume returns `research_brief`
 - [ ] Detailed query returns `research_brief` without HITL
 - [ ] LangSmith project shows traces after test requests
+- [ ] `npm run eval:scoping` completes and shows an experiment in LangSmith
 
 ## Dry run reference
 
