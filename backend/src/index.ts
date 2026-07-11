@@ -5,8 +5,11 @@ import { Command } from "@langchain/langgraph";
 import express, { Request, Response } from "express";
 
 import { port } from "./config/llm.js";
-import { graph } from "./graph/researchGraph.js";
+import { checkpointer } from "./graph/checkpointer.js";
+import { createResearchGraph } from "./graph/researchGraph.js";
 import type { ResearchState } from "./graph/state.js";
+
+const graph = createResearchGraph(checkpointer);
 
 type GraphResult = ResearchState & {
   __interrupt__?: Array<{ id?: string; value?: unknown }>;
@@ -45,6 +48,9 @@ function sendGraphResult(res: Response, result: GraphResult, threadId: string) {
       question: result.question || undefined,
       verification: result.verification || undefined,
       research_brief: result.researchBrief,
+      notes: result.notes,
+      raw_notes: result.rawNotes,
+      compressed_research: result.compressedResearch || undefined,
     });
     return;
   }
@@ -65,7 +71,10 @@ app.post("/research", async (req: Request, res: Response) => {
     typeof req.body?.threadId === "string" && req.body.threadId.trim()
       ? req.body.threadId.trim()
       : randomUUID();
-  const config = { configurable: { thread_id: threadId } };
+  const config = {
+    configurable: { thread_id: threadId },
+    recursionLimit: 100,
+  };
 
   const clarificationResponse = req.body?.clarificationResponse;
   if (clarificationResponse !== undefined) {
@@ -118,6 +127,10 @@ app.post("/research", async (req: Request, res: Response) => {
         humanResponse: "",
         enrichedQuery: "",
         status: "needs_clarification",
+        researcherMessages: [],
+        toolCallIterations: 0,
+        researchTopic: "",
+        compressedResearch: "",
       },
       config,
     )) as GraphResult;

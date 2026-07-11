@@ -36,6 +36,5 @@ export async function generateBrief(
 
   return {
     researchBrief: result.research_brief,
-    status: "complete",
   };
 }
