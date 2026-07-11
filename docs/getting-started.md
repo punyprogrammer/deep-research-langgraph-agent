@@ -152,5 +152,6 @@ npm start
 
 ## Next steps
 
+- See [data-flow-end-to-end.md](./data-flow-end-to-end.md) for a beginner-friendly walkthrough of payloads, agent state, and SSE streaming (clarification → brief → research)
 - See [langgraph-studio.md](./langgraph-studio.md) to debug the graph visually
 - See [testing.md](./testing.md) for curl examples and LangSmith verification
