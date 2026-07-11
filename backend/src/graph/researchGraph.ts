@@ -7,7 +7,6 @@ import {
 } from "@langchain/langgraph";
 
 import { log } from "../utils/logger.js";
-import { checkpointer } from "./checkpointer.js";
 import { assessQuery } from "./nodes/assessQuery.js";
 import { finalizeResearch } from "./nodes/finalizeResearch.js";
 import { generateBrief } from "./nodes/generateBrief.js";
@@ -66,6 +65,21 @@ function buildWorkflow() {
     .addEdge("researcher", "finalizeResearch")
     .addEdge("finalizeResearch", END);
 }
+
+log.info("Research graph workflow ready", {
+  nodes: [
+    "assessQuery",
+    "requestClarification",
+    "humanClarification",
+    "incorporateClarification",
+    "generateBrief",
+    "prepareResearch",
+    "researcher",
+    "finalizeResearch",
+  ],
+  terminalEdge: "finalizeResearch → END",
+  deepResearchWired: true,
+});
 
 /**
  * Default superstep budget for the full scoping + research graph.

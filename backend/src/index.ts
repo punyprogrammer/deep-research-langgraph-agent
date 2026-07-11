@@ -10,6 +10,12 @@ import { checkpointer } from "./graph/checkpointer.js";
 import { createResearchGraph } from "./graph/researchGraph.js";
 import type { ResearchState } from "./graph/state.js";
 import { log } from "./utils/logger.js";
+import {
+  buildClarificationPayload,
+  buildCompletePayload,
+  streamResearchGraph,
+  type ResearchStreamEvent,
+} from "./utils/researchStream.js";
 
 const graph = createResearchGraph(checkpointer);
 
@@ -33,76 +39,60 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
 
-function summarizeResult(result: GraphResult) {
+function wantsStream(req: Request): boolean {
+  if (req.body?.stream === true) return true;
+  const accept = req.headers.accept ?? "";
+  return accept.includes("text/event-stream");
+}
+
+function writeSse(res: Response, event: ResearchStreamEvent) {
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function initialGraphState(query: string) {
   return {
-    status: result.status,
-    interrupted: Boolean(result.__interrupt__?.length),
-    hasBrief: Boolean(result.researchBrief),
-    briefPreview: result.researchBrief?.slice(0, 120),
-    notesCount: result.notes?.length ?? 0,
-    rawNotesCount: result.rawNotes?.length ?? 0,
-    hasFinalReport: Boolean(result.finalReport),
-    needClarification: result.needClarification,
-    sufficient: result.sufficient,
+    query,
+    messages: [new HumanMessage(query)],
+    supervisorMessages: [],
+    rawNotes: [],
+    notes: [],
+    researchBrief: undefined,
+    finalReport: "",
+    sufficient: false,
+    assessmentReason: "",
+    needClarification: false,
+    question: "",
+    verification: "",
+    humanResponse: "",
+    enrichedQuery: "",
+    status: "needs_clarification" as const,
+    researcherMessages: [],
+    toolCallIterations: 0,
+    researchTopic: "",
+    compressedResearch: "",
   };
 }
 
 function sendGraphResult(res: Response, result: GraphResult, threadId: string) {
   if (result.__interrupt__?.length) {
-    log.info("Responding: needs_clarification (interrupt)", {
-      threadId,
-      ...summarizeResult(result),
-    });
-    res.json({
-      status: "needs_clarification",
-      threadId,
-      query: result.query,
-      assessmentReason: result.assessmentReason,
-      need_clarification: result.needClarification,
-      question: result.question,
-      verification: result.verification,
-      interrupt: result.__interrupt__[0],
-    });
+    log.info("Responding: needs_clarification (interrupt)", { threadId });
+    res.json(buildClarificationPayload(result, threadId));
     return;
   }
 
   if (result.status === "complete") {
-    log.info("Responding: complete (scoping finished)", {
+    log.info("Responding: complete (scoping + research finished)", {
       threadId,
-      ...summarizeResult(result),
-      responseKeys: [
-        "status",
-        "threadId",
-        "query",
-        "enrichedQuery",
-        "assessmentReason",
-        "need_clarification",
-        "question",
-        "verification",
-        "research_brief",
-      ],
-      note: "notes/rawNotes/finalReport are not returned — deep research is not wired on this branch",
+      notesCount: result.notes?.length ?? 0,
+      compressedLength: result.compressedResearch?.length ?? 0,
     });
-    res.json({
-      status: result.status,
-      threadId,
-      query: result.query,
-      enrichedQuery: result.enrichedQuery || undefined,
-      assessmentReason: result.assessmentReason,
-      need_clarification: result.needClarification,
-      question: result.question || undefined,
-      verification: result.verification || undefined,
-      research_brief: result.researchBrief,
-      notes: result.notes,
-      raw_notes: result.rawNotes,
-      compressed_research: result.compressedResearch || undefined,
-    });
+    res.json(buildCompletePayload(result, threadId));
     return;
   }
 
   log.warn("Responding: unexpected non-complete status", {
     threadId,
-    ...summarizeResult(result),
+    status: result.status,
   });
   res.json({
     status: result.status,
@@ -115,6 +105,45 @@ function sendGraphResult(res: Response, result: GraphResult, threadId: string) {
   });
 }
 
+async function runStreamingResearch(options: {
+  res: Response;
+  threadId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  input: any;
+  config: Record<string, unknown>;
+}) {
+  const { res, threadId, input, config } = options;
+
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  writeSse(res, {
+    type: "status",
+    message: `Thread ${threadId}`,
+  });
+
+  try {
+    await streamResearchGraph({
+      graph,
+      input,
+      config,
+      threadId,
+      emit: (event) => writeSse(res, event),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    log.error("Research stream failed", { threadId, message });
+    writeSse(res, { type: "error", message });
+  } finally {
+    res.write("data: {\"type\":\"done\"}\n\n");
+    res.end();
+  }
+}
+
 app.post("/research", async (req: Request, res: Response) => {
   const threadId =
     typeof req.body?.threadId === "string" && req.body.threadId.trim()
@@ -124,10 +153,14 @@ app.post("/research", async (req: Request, res: Response) => {
     configurable: { thread_id: threadId },
     recursionLimit: 100,
   };
+  const stream = wantsStream(req);
 
   const clarificationResponse = req.body?.clarificationResponse;
   if (clarificationResponse !== undefined) {
-    if (typeof clarificationResponse !== "string" || !clarificationResponse.trim()) {
+    if (
+      typeof clarificationResponse !== "string" ||
+      !clarificationResponse.trim()
+    ) {
       log.warn("Bad resume request: empty clarificationResponse", { threadId });
       res.status(400).json({
         error: "clarificationResponse must be a non-empty string when resuming",
@@ -137,20 +170,23 @@ app.post("/research", async (req: Request, res: Response) => {
 
     log.info("POST /research resume", {
       threadId,
+      stream,
       clarificationPreview: clarificationResponse.trim().slice(0, 160),
     });
 
+    const input = new Command({ resume: clarificationResponse.trim() });
+
+    if (stream) {
+      await runStreamingResearch({ res, threadId, input, config });
+      return;
+    }
+
     try {
       const started = Date.now();
-      const result = (await graph.invoke(
-        new Command({ resume: clarificationResponse.trim() }),
-        config,
-      )) as GraphResult;
-
+      const result = (await graph.invoke(input as never, config)) as GraphResult;
       log.info("Graph resume finished", {
         threadId,
         durationMs: Date.now() - started,
-        ...summarizeResult(result),
       });
       sendGraphResult(res, result, threadId);
     } catch (error) {
@@ -173,40 +209,23 @@ app.post("/research", async (req: Request, res: Response) => {
 
   log.info("POST /research start", {
     threadId,
+    stream,
     queryPreview: query.slice(0, 160),
   });
 
+  const input = initialGraphState(query);
+
+  if (stream) {
+    await runStreamingResearch({ res, threadId, input, config });
+    return;
+  }
+
   try {
     const started = Date.now();
-    const result = (await graph.invoke(
-      {
-        query,
-        messages: [new HumanMessage(query)],
-        supervisorMessages: [],
-        rawNotes: [],
-        notes: [],
-        researchBrief: undefined,
-        finalReport: "",
-        sufficient: false,
-        assessmentReason: "",
-        needClarification: false,
-        question: "",
-        verification: "",
-        humanResponse: "",
-        enrichedQuery: "",
-        status: "needs_clarification",
-        researcherMessages: [],
-        toolCallIterations: 0,
-        researchTopic: "",
-        compressedResearch: "",
-      },
-      config,
-    )) as GraphResult;
-
+    const result = (await graph.invoke(input, config)) as GraphResult;
     log.info("Graph invoke finished", {
       threadId,
       durationMs: Date.now() - started,
-      ...summarizeResult(result),
     });
     sendGraphResult(res, result, threadId);
   } catch (error) {

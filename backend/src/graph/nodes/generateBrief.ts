@@ -42,17 +42,8 @@ export async function generateBrief(
 
   log.node("generateBrief", "exit", {
     briefPreview: result.research_brief.slice(0, 200),
-    status: "complete",
+    nextEdge: "prepareResearch",
   });
-  log.warn(
-    "Pipeline ends after generateBrief on this branch (feat/scaffold-frontend). Deep research (prepareResearch → researcher → finalizeResearch) lives on feat/implement-research-agent and is NOT wired here.",
-    {
-      notesCount: state.notes?.length ?? 0,
-      rawNotesCount: state.rawNotes?.length ?? 0,
-      hasFinalReport: Boolean(state.finalReport),
-      nextEdge: "END",
-    },
-  );
 
   return {
     researchBrief: result.research_brief,
