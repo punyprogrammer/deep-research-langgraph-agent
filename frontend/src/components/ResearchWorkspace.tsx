@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { MarkdownReport } from "@/components/MarkdownReport";
+import {
+  ResearchActivityFeed,
+  type ActivityItem,
+} from "@/components/ResearchActivityFeed";
 import {
   buildSteps,
   ResearchTimeline,
+  type LoadingPhase,
 } from "@/components/ResearchTimeline";
 import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 import { cn } from "@/lib/utils";
@@ -35,8 +40,35 @@ export type WorkspaceSession = {
   verification?: string;
   enrichedQuery?: string;
   researchBrief?: string;
+  notes?: string[];
+  compressedResearch?: string;
+  findings?: string;
+  activity: ActivityItem[];
+  livePhase?: LoadingPhase;
   feed: FeedItem[];
 };
+
+const LOADING_COPY: Record<LoadingPhase, string> = {
+  assess: "Assessing your question and deciding next steps…",
+  brief: "Drafting the research brief…",
+  search: "Running deep research — watch tool calls below…",
+  report: "Compressing notes into findings…",
+};
+
+function deriveLoadingPhase(
+  elapsedMs: number,
+  fromClarify: boolean,
+): LoadingPhase {
+  if (fromClarify) {
+    if (elapsedMs < 12_000) return "brief";
+    if (elapsedMs < 45_000) return "search";
+    return "report";
+  }
+  if (elapsedMs < 8_000) return "assess";
+  if (elapsedMs < 20_000) return "brief";
+  if (elapsedMs < 55_000) return "search";
+  return "report";
+}
 
 export function ResearchWorkspace({
   session,
@@ -50,35 +82,86 @@ export function ResearchWorkspace({
   onReset: () => void;
 }) {
   const [answer, setAnswer] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copiedBrief, setCopiedBrief] = useState(false);
+  const [copiedFindings, setCopiedFindings] = useState(false);
+  const [fallbackPhase, setFallbackPhase] = useState<LoadingPhase>("assess");
   const feedEndRef = useRef<HTMLDivElement>(null);
+  const activityEndRef = useRef<HTMLDivElement>(null);
+  const loadStartedAt = useRef<number | null>(null);
+
+  const hasFindings = Boolean(session.findings?.trim());
+  const loadingPhase = session.livePhase ?? fallbackPhase;
 
   const steps = buildSteps({
     loading: session.loading,
     awaitingClarification: session.awaitingClarification,
     clarified: session.clarified,
     hasBrief: Boolean(session.researchBrief),
+    hasFindings,
     skippedClarification: session.skippedClarification,
+    loadingPhase: session.loading ? loadingPhase : undefined,
   });
 
   useEffect(() => {
+    if (!session.loading || session.livePhase) {
+      if (!session.loading) loadStartedAt.current = null;
+      return;
+    }
+    if (loadStartedAt.current == null) {
+      loadStartedAt.current = Date.now();
+    }
+    const fromClarify = session.clarified;
+    const tick = () => {
+      const started = loadStartedAt.current ?? Date.now();
+      setFallbackPhase(deriveLoadingPhase(Date.now() - started, fromClarify));
+    };
+    tick();
+    const id = window.setInterval(tick, 1500);
+    return () => window.clearInterval(id);
+  }, [session.loading, session.clarified, session.livePhase]);
+
+  useEffect(() => {
     feedEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [session.feed.length, session.loading, session.awaitingClarification]);
+  }, [
+    session.feed.length,
+    session.loading,
+    session.awaitingClarification,
+    session.findings,
+    session.activity.length,
+    loadingPhase,
+  ]);
+
+  useEffect(() => {
+    activityEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [session.activity.length]);
 
   useEffect(() => {
     if (session.awaitingClarification) setAnswer("");
   }, [session.awaitingClarification, session.question]);
 
-  async function copyBrief() {
-    if (!session.researchBrief) return;
-    await navigator.clipboard.writeText(session.researchBrief);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+  async function copyText(text: string, which: "brief" | "findings") {
+    await navigator.clipboard.writeText(text);
+    if (which === "brief") {
+      setCopiedBrief(true);
+      window.setTimeout(() => setCopiedBrief(false), 1800);
+    } else {
+      setCopiedFindings(true);
+      window.setTimeout(() => setCopiedFindings(false), 1800);
+    }
   }
+
+  const headline = hasFindings
+    ? "Research complete"
+    : session.researchBrief && !session.loading
+      ? "Scoping complete"
+      : session.awaitingClarification
+        ? "Needs your input"
+        : "Working on your research";
+
+  const searchQueries = session.activity.filter((item) => item.kind === "search");
 
   return (
     <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-6 px-4 pb-16 pt-2 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10 lg:px-8">
-      {/* Mobile horizontal step strip */}
       <div className="lg:hidden">
         <MobileStepStrip steps={steps} />
       </div>
@@ -96,17 +179,13 @@ export function ResearchWorkspace({
               Research session
             </p>
             <h2 className="mt-1 font-display text-2xl font-semibold text-ink dark:text-paper sm:text-3xl">
-              {session.researchBrief
-                ? "Scoping complete"
-                : session.awaitingClarification
-                  ? "Needs your input"
-                  : "Working on your research"}
+              {headline}
             </h2>
           </div>
           {session.loading ? (
             <span className="inline-flex items-center gap-2 rounded-full border border-teal/20 bg-teal/5 px-3 py-1.5 text-xs font-medium text-teal dark:border-teal-bright/25 dark:bg-teal-bright/10 dark:text-teal-bright">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Thinking…
+              Researching…
             </span>
           ) : null}
         </div>
@@ -134,19 +213,38 @@ export function ResearchWorkspace({
               className="rounded-2xl border border-dashed border-teal/30 bg-teal/5 px-4 py-4 dark:border-teal-bright/25 dark:bg-teal-bright/5"
             >
               <div className="flex items-center gap-3 text-sm text-teal dark:text-teal-bright">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>
-                  {session.clarified
-                    ? "Building your research brief…"
-                    : "Assessing your question and deciding next steps…"}
-                </span>
-              </div>
-              <div className="mt-3 space-y-2">
-                <div className="h-2 w-[80%] animate-pulse rounded bg-teal/15 dark:bg-teal-bright/15" />
-                <div className="h-2 w-[60%] animate-pulse rounded bg-teal/10 dark:bg-teal-bright/10" />
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                <span>{LOADING_COPY[loadingPhase]}</span>
               </div>
             </motion.div>
           ) : null}
+
+          {(session.loading || session.activity.length > 0) && (
+            <>
+              {searchQueries.length > 0 ? (
+                <section className="rounded-3xl border border-teal/15 bg-white/70 p-4 dark:border-teal-bright/15 dark:bg-white/5 sm:p-5">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-teal dark:text-teal-bright">
+                    Queries & tool calls
+                  </p>
+                  <ol className="list-decimal space-y-2 pl-5 text-sm text-ink/90 dark:text-paper/85">
+                    {searchQueries.map((item) => (
+                      <li key={item.id} className="leading-relaxed">
+                        {item.body}
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
+
+              <div>
+                <ResearchActivityFeed
+                  items={session.activity}
+                  loading={session.loading}
+                />
+                <div ref={activityEndRef} />
+              </div>
+            </>
+          )}
 
           {session.awaitingClarification && session.question ? (
             <motion.div
@@ -157,9 +255,7 @@ export function ResearchWorkspace({
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber">
                 Your turn
               </p>
-              <div className="prose prose-sm mb-4 max-w-none text-ink dark:prose-invert dark:text-paper [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5">
-                <ReactMarkdown>{session.question}</ReactMarkdown>
-              </div>
+              <MarkdownReport content={session.question} className="mb-4" />
               <textarea
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
@@ -186,56 +282,92 @@ export function ResearchWorkspace({
           ) : null}
 
           {session.researchBrief ? (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-3xl border border-teal/20 bg-gradient-to-br from-white via-mist/50 to-teal/10 p-5 dark:border-teal-bright/20 dark:from-white/10 dark:via-white/5 dark:to-teal/10 sm:p-6"
+            <ResultCard
+              label="Research brief"
+              onCopy={() => copyText(session.researchBrief!, "brief")}
+              copied={copiedBrief}
             >
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-teal dark:text-teal-bright">
-                  Research brief
-                </p>
-                <button
-                  type="button"
-                  onClick={copyBrief}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-teal/20 px-3 py-1 text-xs font-medium text-ink transition hover:border-teal dark:border-teal-bright/25 dark:text-paper dark:hover:border-teal-bright"
-                >
-                  {copied ? (
-                    <Check className="h-3.5 w-3.5 text-teal" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                  {copied ? "Copied" : "Copy"}
-                </button>
-              </div>
               <p className="text-base leading-relaxed text-ink dark:text-paper sm:text-lg">
                 {session.researchBrief}
               </p>
+            </ResultCard>
+          ) : null}
 
-              <div className="mt-5 rounded-2xl border border-dashed border-teal/25 bg-white/50 px-4 py-3 text-sm text-slate-muted dark:border-teal-bright/20 dark:bg-white/5 dark:text-paper/60">
-                Scoping is done. Deep research and the final report are next —
-                those steps will light up here when the research agents are
-                connected.
-              </div>
+          {hasFindings ? (
+            <ResultCard
+              label="Fully comprehensive findings"
+              onCopy={() => copyText(session.findings!, "findings")}
+              copied={copiedFindings}
+              accent="findings"
+            >
+              <MarkdownReport content={session.findings!} />
+            </ResultCard>
+          ) : null}
 
-              <div className="mt-4 flex flex-wrap gap-3">
-                <HoverBorderGradient
-                  as="button"
-                  type="button"
-                  onClick={onReset}
-                  containerClassName="rounded-full"
-                  className="bg-ink px-5 py-2 text-sm font-semibold text-paper dark:bg-paper dark:text-ink"
-                >
-                  New research
-                </HoverBorderGradient>
-              </div>
-            </motion.div>
+          {(session.researchBrief || hasFindings) && !session.loading ? (
+            <div className="pt-2">
+              <HoverBorderGradient
+                as="button"
+                type="button"
+                onClick={onReset}
+                containerClassName="rounded-full"
+                className="bg-ink px-5 py-2 text-sm font-semibold text-paper dark:bg-paper dark:text-ink"
+              >
+                New research
+              </HoverBorderGradient>
+            </div>
           ) : null}
 
           <div ref={feedEndRef} />
         </div>
       </div>
     </div>
+  );
+}
+
+function ResultCard({
+  label,
+  children,
+  onCopy,
+  copied,
+  accent = "brief",
+}: {
+  label: string;
+  children: ReactNode;
+  onCopy: () => void;
+  copied: boolean;
+  accent?: "brief" | "findings";
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        "rounded-3xl border p-5 sm:p-6",
+        accent === "brief"
+          ? "border-teal/20 bg-gradient-to-br from-white via-mist/50 to-teal/10 dark:border-teal-bright/20 dark:from-white/10 dark:via-white/5 dark:to-teal/10"
+          : "border-teal/25 bg-white/80 dark:border-teal-bright/25 dark:bg-white/5",
+      )}
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-teal dark:text-teal-bright">
+          {label}
+        </p>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex items-center gap-1.5 rounded-full border border-teal/20 px-3 py-1 text-xs font-medium text-ink transition hover:border-teal dark:border-teal-bright/25 dark:text-paper dark:hover:border-teal-bright"
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5 text-teal" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      {children}
+    </motion.div>
   );
 }
 
@@ -250,7 +382,8 @@ function FeedCard({ item }: { item: FeedItem }) {
       "border-amber/30 bg-amber/5 dark:border-amber/25 dark:bg-amber/10",
     clarification_answer:
       "border-teal/20 bg-teal/5 dark:border-teal-bright/20 dark:bg-teal-bright/10",
-    verification: "border-teal/20 bg-teal/5 dark:border-teal-bright/20 dark:bg-teal-bright/5",
+    verification:
+      "border-teal/20 bg-teal/5 dark:border-teal-bright/20 dark:bg-teal-bright/5",
     brief: "border-teal/25 bg-mist/80 dark:border-teal-bright/25 dark:bg-white/5",
   };
 
@@ -271,7 +404,10 @@ function FeedCard({ item }: { item: FeedItem }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className={cn("rounded-2xl border px-4 py-3 sm:px-5 sm:py-4", styles[item.kind])}
+      className={cn(
+        "rounded-2xl border px-4 py-3 sm:px-5 sm:py-4",
+        styles[item.kind],
+      )}
     >
       {item.title ? (
         <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-muted dark:text-paper/45">
@@ -279,9 +415,7 @@ function FeedCard({ item }: { item: FeedItem }) {
         </p>
       ) : null}
       {item.kind === "clarification_question" ? (
-        <div className="prose prose-sm max-w-none text-ink dark:prose-invert dark:text-paper [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5">
-          <ReactMarkdown>{item.body}</ReactMarkdown>
-        </div>
+        <MarkdownReport content={item.body} />
       ) : (
         <p className="text-sm leading-relaxed text-ink/90 dark:text-paper/90 sm:text-[0.95rem]">
           {item.body}

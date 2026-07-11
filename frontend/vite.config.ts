@@ -20,6 +20,9 @@ export default defineConfig({
         target: "http://localhost:3001",
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
+        // Keep SSE / long research streams open without proxy timeouts.
+        timeout: 0,
+        proxyTimeout: 0,
       },
     },
   },

@@ -32,6 +32,9 @@ export type ResearchStep = {
   status: StepStatus;
 };
 
+/** Visual phase while waiting on the blocking /research request. */
+export type LoadingPhase = "assess" | "brief" | "search" | "report";
+
 const ICONS: Record<StepId, typeof Sparkles> = {
   query: Sparkles,
   assess: FileSearch,
@@ -161,39 +164,69 @@ export function buildSteps(args: {
   awaitingClarification: boolean;
   clarified: boolean;
   hasBrief: boolean;
+  hasFindings: boolean;
   skippedClarification: boolean;
+  loadingPhase?: LoadingPhase;
 }): ResearchStep[] {
   const {
     loading,
     awaitingClarification,
     clarified,
     hasBrief,
+    hasFindings,
     skippedClarification,
+    loadingPhase,
   } = args;
+
+  const phase = loadingPhase ?? "assess";
 
   const assess: StepStatus = (() => {
     if (awaitingClarification || clarified || hasBrief || skippedClarification) {
       return "done";
     }
-    if (loading) return "active";
+    if (loading) return phase === "assess" ? "active" : "done";
     return "pending";
   })();
 
   const clarify: StepStatus = (() => {
     if (awaitingClarification) return "needs_input";
-    if (clarified) return loading && !hasBrief ? "active" : "done";
-    if (skippedClarification || hasBrief) return "done";
+    if (clarified) {
+      if (loading && !hasBrief && phase === "assess") return "active";
+      return "done";
+    }
+    if (skippedClarification || hasBrief || hasFindings) return "done";
     if (loading && assess === "active") return "pending";
+    if (loading) return "done";
     return "pending";
   })();
 
   const brief: StepStatus = (() => {
-    if (hasBrief) return "done";
+    if (hasBrief || hasFindings) return "done";
     if (awaitingClarification) return "pending";
-    if (loading && (clarified || skippedClarification || assess === "done")) {
-      return "active";
+    if (loading) {
+      if (phase === "brief") return "active";
+      if (phase === "assess") return "pending";
+      return "done";
     }
-    if (loading && assess === "active") return "pending";
+    return "pending";
+  })();
+
+  const search: StepStatus = (() => {
+    if (hasFindings) return "done";
+    if (awaitingClarification) return "pending";
+    if (loading) {
+      if (phase === "search") return "active";
+      if (phase === "assess" || phase === "brief") return "pending";
+      return "done";
+    }
+    if (hasBrief) return "pending";
+    return "pending";
+  })();
+
+  const report: StepStatus = (() => {
+    if (hasFindings) return "done";
+    if (loading && phase === "report") return "active";
+    if (loading && (phase === "search" || hasBrief)) return "pending";
     return "pending";
   })();
 
@@ -208,7 +241,9 @@ export function buildSteps(args: {
       id: "assess",
       label: "Understand question",
       description:
-        assess === "active" ? "Checking specificity…" : "Assessed clarity and scope",
+        assess === "active"
+          ? "Checking specificity…"
+          : "Assessed clarity and scope",
       status: assess,
     },
     {
@@ -240,14 +275,24 @@ export function buildSteps(args: {
     {
       id: "search",
       label: "Deep research",
-      description: "Coming soon — multi-source search",
-      status: "upcoming",
+      description:
+        search === "active"
+          ? "Searching and gathering sources…"
+          : search === "done"
+            ? "Sources gathered"
+            : "Multi-source search",
+      status: search,
     },
     {
       id: "report",
-      label: "Final report",
-      description: "Coming soon — synthesized findings",
-      status: "upcoming",
+      label: "Findings",
+      description:
+        report === "active"
+          ? "Compressing research notes…"
+          : report === "done"
+            ? "Research findings ready"
+            : "Synthesize findings",
+      status: report,
     },
   ];
 }
