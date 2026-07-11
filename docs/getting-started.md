@@ -1,6 +1,6 @@
 # Deep Research — Local Setup
 
-This project is a full-stack deep research application. The backend exposes a `/research` endpoint backed by a LangGraph agent. The frontend folder is reserved for a future UI.
+This project is a full-stack deep research application. The backend exposes a `/research` endpoint backed by a LangGraph agent. The frontend is a React + Vite UI with dark/light themes.
 
 ## Prerequisites
 
@@ -13,9 +13,26 @@ This project is a full-stack deep research application. The backend exposes a `/
 ```
 deep-research/
 ├── backend/          # Express + LangGraph API
-├── frontend/         # Reserved (empty for now)
+├── frontend/         # React + Vite UI (Aceternity + Tailwind)
 └── docs/             # Runbooks and testing guides
 ```
+
+## Frontend setup
+
+1. Install dependencies:
+
+```bash
+cd frontend
+npm install
+```
+
+2. Start the Vite dev server (proxies `/api` to `http://localhost:3001`):
+
+```bash
+npm run dev
+```
+
+The UI runs at `http://localhost:5173`. Start the backend first so research requests succeed.
 
 ## Backend setup
 

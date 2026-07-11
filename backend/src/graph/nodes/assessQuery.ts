@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getChatModel } from "../../config/llm.js";
+import { log } from "../../utils/logger.js";
 import type { ResearchState } from "../state.js";
 
 const assessmentSchema = z.object({
@@ -17,6 +18,10 @@ const assessmentSchema = z.object({
 export async function assessQuery(
   state: ResearchState,
 ): Promise<Partial<ResearchState>> {
+  log.node("assessQuery", "enter", {
+    queryPreview: state.query.slice(0, 120),
+  });
+
   const model = getChatModel().withStructuredOutput(assessmentSchema);
 
   const assessment = await model.invoke([
@@ -38,6 +43,11 @@ Mark sufficient=false when key details are missing and clarification would mater
       content: `Evaluate this research query:\n\n${state.query}`,
     },
   ]);
+
+  log.node("assessQuery", "exit", {
+    sufficient: assessment.sufficient,
+    reasonPreview: assessment.reason.slice(0, 160),
+  });
 
   return {
     sufficient: assessment.sufficient,
